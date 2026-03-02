@@ -84,7 +84,7 @@ export default function EpigeneticsPage() {
 
     if (isLoading) {
         return (
-            <div className="h-screen flex items-center justify-center">
+            <div className="flex items-center justify-center overflow-hidden" style={{ height: "80vh" }}>
                 <div className="relative">
                     <div className="w-16 h-16 border-4 border-slate-700 border-t-blue-500 rounded-full animate-spin" />
                     <div className="absolute inset-0 bg-gradient-to-r from-blue-500/20 to-purple-500/20 rounded-full blur-xl animate-pulse" />

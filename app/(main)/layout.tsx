@@ -1,9 +1,10 @@
 
 import type { Metadata } from 'next'
 import { Inter, Space_Grotesk, JetBrains_Mono } from 'next/font/google'
-import './globals.css'
+import '../globals.css'
 import Header from './components/layout/Header'
 import Sidebar from './components/layout/Sidebar'
+import LoginPage from '../(auth)/login/page'
 
 const inter = Inter({
   subsets: ['latin'],
