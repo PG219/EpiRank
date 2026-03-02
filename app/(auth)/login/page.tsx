@@ -10,47 +10,100 @@ import {
     EyeSlashIcon,
     ArrowRightIcon,
     ArrowPathIcon,
-    CheckCircleIcon,
-    XCircleIcon,
     BeakerIcon,
     SparklesIcon,
-    ShieldCheckIcon
+    ShieldCheckIcon,
 } from '@heroicons/react/24/outline'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import {
+    browserLocalPersistence,
+    browserSessionPersistence,
+    createUserWithEmailAndPassword,
+    GithubAuthProvider,
+    GoogleAuthProvider,
+    setPersistence,
+    signInWithEmailAndPassword,
+    signInWithPopup,
+    updateProfile,
+} from 'firebase/auth'
+import { FirebaseError } from 'firebase/app'
+
+import { firebaseAuth } from '@/lib/firebase/client'
+
+type PasswordStrength = 'weak' | 'medium' | 'strong' | null
+
+type FormErrors = {
+    email: string
+    password: string
+    confirmPassword: string
+    name: string
+    form: string
+}
+
+const initialErrors: FormErrors = {
+    email: '',
+    password: '',
+    confirmPassword: '',
+    name: '',
+    form: '',
+}
+
+const getAuthErrorMessage = (error: unknown): string => {
+    if (error instanceof FirebaseError) {
+        switch (error.code) {
+            case 'auth/invalid-email':
+                return 'Invalid email format.'
+            case 'auth/invalid-credential':
+            case 'auth/user-not-found':
+            case 'auth/wrong-password':
+                return 'Incorrect email or password.'
+            case 'auth/email-already-in-use':
+                return 'An account already exists with this email.'
+            case 'auth/weak-password':
+                return 'Use a stronger password (at least 6 characters).'
+            case 'auth/popup-closed-by-user':
+                return 'Sign-in popup was closed before completion.'
+            case 'auth/account-exists-with-different-credential':
+                return 'An account exists with a different sign-in method.'
+            default:
+                return 'Authentication failed. Please try again.'
+        }
+    }
+
+    if (error instanceof Error && error.message) {
+        return error.message
+    }
+
+    return 'Something went wrong. Please try again.'
+}
 
 export default function LoginPage() {
+    const router = useRouter()
+
     const [isLogin, setIsLogin] = useState(true)
     const [showPassword, setShowPassword] = useState(false)
     const [isLoading, setIsLoading] = useState(false)
     const [rememberMe, setRememberMe] = useState(false)
     const [acceptTerms, setAcceptTerms] = useState(false)
 
-    // Form states
     const [formData, setFormData] = useState({
         email: '',
         password: '',
         confirmPassword: '',
         name: '',
-        institution: ''
+        institution: '',
     })
 
-    // Validation states
-    const [errors, setErrors] = useState({
-        email: '',
-        password: '',
-        confirmPassword: '',
-        name: ''
-    })
-
-    // Password strength
-    const [passwordStrength, setPasswordStrength] = useState<'weak' | 'medium' | 'strong' | null>(null)
+    const [errors, setErrors] = useState<FormErrors>(initialErrors)
+    const [passwordStrength, setPasswordStrength] = useState<PasswordStrength>(null)
 
     const validateEmail = (email: string) => {
         const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
         return re.test(email)
     }
 
-    const checkPasswordStrength = (password: string) => {
+    const checkPasswordStrength = (password: string): PasswordStrength => {
         if (password.length < 6) return 'weak'
         if (password.length < 10) return 'medium'
         if (/[A-Z]/.test(password) && /[0-9]/.test(password) && /[^A-Za-z0-9]/.test(password)) {
@@ -59,63 +112,245 @@ export default function LoginPage() {
         return 'medium'
     }
 
+    const resetFormLevelErrors = () => {
+        setErrors((prev) => ({ ...prev, form: '' }))
+    }
+
+    const createServerSession = async (idToken: string) => {
+        const sessionResponse = await fetch('/api/auth/session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ idToken, rememberMe }),
+        })
+
+        if (!sessionResponse.ok) {
+            let errorMessage = 'Unable to establish authenticated session.'
+            try {
+                const data = (await sessionResponse.json()) as { error?: string }
+                if (data.error) {
+                    errorMessage = data.error
+                }
+            } catch {
+                // Response may not be JSON (e.g. unexpected server error page).
+            }
+            throw new Error(errorMessage)
+        }
+    }
+
+    const syncUserProfile = async (idToken: string) => {
+        const syncResponse = await fetch('/api/auth/sync', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${idToken}`,
+            },
+            body: JSON.stringify({
+                name: formData.name,
+                institution: formData.institution,
+            }),
+        })
+
+        if (!syncResponse.ok) {
+            let errorMessage = 'Unable to save user profile.'
+            try {
+                const data = (await syncResponse.json()) as { error?: string }
+                if (data.error) {
+                    errorMessage = data.error
+                }
+            } catch {
+                // Response may not be JSON (e.g. unexpected server error page).
+            }
+            throw new Error(errorMessage)
+        }
+
+        try {
+            const data = (await syncResponse.json()) as { synced?: boolean; warning?: string }
+            if (data.synced === false && data.warning) {
+                console.warn(data.warning)
+            }
+        } catch {
+            // Ignore non-JSON success response.
+        }
+    }
+
+    const completeAuthFlow = async (idToken: string) => {
+        await createServerSession(idToken)
+        await syncUserProfile(idToken)
+        router.push('/dashboard')
+        router.refresh()
+    }
+
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target
-        setFormData(prev => ({ ...prev, [name]: value }))
+        setFormData((prev) => ({ ...prev, [name]: value }))
+        resetFormLevelErrors()
 
-        // Real-time validation
         if (name === 'email') {
-            setErrors(prev => ({
+            setErrors((prev) => ({
                 ...prev,
-                email: value && !validateEmail(value) ? 'Invalid email format' : ''
+                email: value && !validateEmail(value) ? 'Invalid email format' : '',
             }))
         }
+
         if (name === 'password') {
             setPasswordStrength(checkPasswordStrength(value))
-            if (formData.confirmPassword) {
-                setErrors(prev => ({
-                    ...prev,
-                    confirmPassword: value !== formData.confirmPassword ? 'Passwords do not match' : ''
-                }))
-            }
-        }
-        if (name === 'confirmPassword') {
-            setErrors(prev => ({
+            setErrors((prev) => ({
                 ...prev,
-                confirmPassword: value !== formData.password ? 'Passwords do not match' : ''
+                password: value.length > 0 && value.length < 6 ? 'Password too short' : '',
+                confirmPassword:
+                    formData.confirmPassword && value !== formData.confirmPassword
+                        ? 'Passwords do not match'
+                        : '',
+            }))
+        }
+
+        if (name === 'confirmPassword') {
+            setErrors((prev) => ({
+                ...prev,
+                confirmPassword: value !== formData.password ? 'Passwords do not match' : '',
+            }))
+        }
+
+        if (name === 'name') {
+            setErrors((prev) => ({
+                ...prev,
+                name: value.trim().length === 0 ? 'Name is required' : '',
             }))
         }
     }
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
+        setErrors(initialErrors)
 
-        // Validate
         if (!validateEmail(formData.email)) {
-            setErrors(prev => ({ ...prev, email: 'Invalid email format' }))
+            setErrors((prev) => ({ ...prev, email: 'Invalid email format' }))
             return
         }
+
         if (formData.password.length < 6) {
-            setErrors(prev => ({ ...prev, password: 'Password too short' }))
+            setErrors((prev) => ({ ...prev, password: 'Password too short' }))
             return
         }
-        if (!isLogin && formData.password !== formData.confirmPassword) {
-            setErrors(prev => ({ ...prev, confirmPassword: 'Passwords do not match' }))
-            return
+
+        if (!isLogin) {
+            if (!formData.name.trim()) {
+                setErrors((prev) => ({ ...prev, name: 'Name is required' }))
+                return
+            }
+
+            if (formData.password !== formData.confirmPassword) {
+                setErrors((prev) => ({ ...prev, confirmPassword: 'Passwords do not match' }))
+                return
+            }
+
+            if (!acceptTerms) {
+                setErrors((prev) => ({ ...prev, form: 'Please accept terms to continue.' }))
+                return
+            }
         }
 
         setIsLoading(true)
-        // Simulate API call
-        setTimeout(() => {
+
+        try {
+            await setPersistence(
+                firebaseAuth,
+                rememberMe ? browserLocalPersistence : browserSessionPersistence
+            )
+
+            let idToken = ''
+
+            if (isLogin) {
+                const credential = await signInWithEmailAndPassword(
+                    firebaseAuth,
+                    formData.email,
+                    formData.password
+                )
+                idToken = await credential.user.getIdToken()
+            } else {
+                const credential = await createUserWithEmailAndPassword(
+                    firebaseAuth,
+                    formData.email,
+                    formData.password
+                )
+
+                if (formData.name.trim()) {
+                    await updateProfile(credential.user, { displayName: formData.name.trim() })
+                }
+
+                idToken = await credential.user.getIdToken(true)
+            }
+
+            await completeAuthFlow(idToken)
+        } catch (error) {
+            setErrors((prev) => ({ ...prev, form: getAuthErrorMessage(error) }))
+        } finally {
             setIsLoading(false)
-            // Redirect to dashboard
-            window.location.href = '/'
-        }, 1500)
+        }
+    }
+
+    const handleSocialLogin = async (providerName: 'google' | 'github') => {
+        setIsLoading(true)
+        setErrors(initialErrors)
+
+        try {
+            await setPersistence(firebaseAuth, browserLocalPersistence)
+
+            const provider =
+                providerName === 'google'
+                    ? new GoogleAuthProvider()
+                    : new GithubAuthProvider()
+
+            const credential = await signInWithPopup(firebaseAuth, provider)
+            const idToken = await credential.user.getIdToken()
+
+            await createServerSession(idToken)
+
+            const syncResponse = await fetch('/api/auth/sync', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${idToken}`,
+                },
+                body: JSON.stringify({
+                    name: credential.user.displayName ?? '',
+                    institution: '',
+                }),
+            })
+
+            if (!syncResponse.ok) {
+                let errorMessage = 'Unable to save social account profile.'
+                try {
+                    const data = (await syncResponse.json()) as { error?: string }
+                    if (data.error) {
+                        errorMessage = data.error
+                    }
+                } catch {
+                    // Response may not be JSON (e.g. unexpected server error page).
+                }
+                throw new Error(errorMessage)
+            }
+
+            try {
+                const data = (await syncResponse.json()) as { synced?: boolean; warning?: string }
+                if (data.synced === false && data.warning) {
+                    console.warn(data.warning)
+                }
+            } catch {
+                // Ignore non-JSON success response.
+            }
+
+            router.push('/dashboard')
+            router.refresh()
+        } catch (error) {
+            setErrors((prev) => ({ ...prev, form: getAuthErrorMessage(error) }))
+        } finally {
+            setIsLoading(false)
+        }
     }
 
     return (
         <div className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden">
-            {/* Animated Background */}
             <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-purple-950/20 to-indigo-950/30">
                 <div className="absolute inset-0 bg-grid-pattern opacity-20" />
                 <div className="absolute top-20 left-10 w-96 h-96 bg-blue-500/20 rounded-full blur-3xl animate-float" />
@@ -123,14 +358,12 @@ export default function LoginPage() {
                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-indigo-500/10 rounded-full blur-3xl animate-pulse" />
             </div>
 
-            {/* Main Container */}
             <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.5 }}
                 className="relative z-10 w-full max-w-6xl flex rounded-3xl overflow-hidden border border-white/20 bg-white/5 backdrop-blur-xl"
             >
-                {/* Left Panel - Branding */}
                 <div className="hidden lg:flex flex-col w-1/2 p-12 bg-gradient-to-br from-blue-600/20 to-purple-600/20 backdrop-blur-xl border-r border-white/20">
                     <div className="flex items-center gap-2 mb-12">
                         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
@@ -150,14 +383,14 @@ export default function LoginPage() {
                         </h2>
 
                         <p className="text-slate-300 text-lg mb-8">
-                            Uncover regulatory patterns in Alzheimer's disease with explainable AI.
+                            Uncover regulatory patterns in Alzheimer&apos;s disease with explainable AI.
                         </p>
 
                         <div className="space-y-4">
                             {[
                                 { icon: BeakerIcon, text: 'Regulatory-aware gene prioritization' },
                                 { icon: SparklesIcon, text: 'SHAP-based explainability' },
-                                { icon: ShieldCheckIcon, text: 'Validated against known targets' }
+                                { icon: ShieldCheckIcon, text: 'Validated against known targets' },
                             ].map((feature, i) => (
                                 <motion.div
                                     key={i}
@@ -175,18 +408,17 @@ export default function LoginPage() {
                         </div>
                     </div>
 
-                    <div className="mt-12 text-sm text-slate-500">
-                        © 2026 EpiRank. All rights reserved.
-                    </div>
+                    <div className="mt-12 text-sm text-slate-500">© 2026 EpiRank. All rights reserved.</div>
                 </div>
 
-                {/* Right Panel - Auth Form */}
                 <div className="w-full lg:w-1/2 p-8 md:p-12">
                     <div className="max-w-md mx-auto">
-                        {/* Toggle */}
                         <div className="flex items-center justify-center gap-4 mb-8">
                             <button
-                                onClick={() => setIsLogin(true)}
+                                onClick={() => {
+                                    setIsLogin(true)
+                                    setErrors(initialErrors)
+                                }}
                                 className={`px-6 py-2 rounded-lg text-sm font-medium transition-all ${isLogin
                                     ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white'
                                     : 'text-slate-400 hover:text-white'
@@ -195,7 +427,10 @@ export default function LoginPage() {
                                 Sign In
                             </button>
                             <button
-                                onClick={() => setIsLogin(false)}
+                                onClick={() => {
+                                    setIsLogin(false)
+                                    setErrors(initialErrors)
+                                }}
                                 className={`px-6 py-2 rounded-lg text-sm font-medium transition-all ${!isLogin
                                     ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white'
                                     : 'text-slate-400 hover:text-white'
@@ -214,7 +449,6 @@ export default function LoginPage() {
                                 onSubmit={handleSubmit}
                                 className="space-y-4"
                             >
-                                {/* Name field (Signup only) */}
                                 {!isLogin && (
                                     <div>
                                         <label className="block text-sm text-slate-400 mb-1">Full Name</label>
@@ -231,13 +465,10 @@ export default function LoginPage() {
                                                 required={!isLogin}
                                             />
                                         </div>
-                                        {errors.name && (
-                                            <p className="text-xs text-red-400 mt-1">{errors.name}</p>
-                                        )}
+                                        {errors.name && <p className="text-xs text-red-400 mt-1">{errors.name}</p>}
                                     </div>
                                 )}
 
-                                {/* Institution field (Signup only) */}
                                 {!isLogin && (
                                     <div>
                                         <label className="block text-sm text-slate-400 mb-1">Institution (Optional)</label>
@@ -252,7 +483,6 @@ export default function LoginPage() {
                                     </div>
                                 )}
 
-                                {/* Email */}
                                 <div>
                                     <label className="block text-sm text-slate-400 mb-1">Email</label>
                                     <div className="relative">
@@ -268,12 +498,9 @@ export default function LoginPage() {
                                             required
                                         />
                                     </div>
-                                    {errors.email && (
-                                        <p className="text-xs text-red-400 mt-1">{errors.email}</p>
-                                    )}
+                                    {errors.email && <p className="text-xs text-red-400 mt-1">{errors.email}</p>}
                                 </div>
 
-                                {/* Password */}
                                 <div>
                                     <label className="block text-sm text-slate-400 mb-1">Password</label>
                                     <div className="relative">
@@ -300,11 +527,8 @@ export default function LoginPage() {
                                             )}
                                         </button>
                                     </div>
-                                    {errors.password && (
-                                        <p className="text-xs text-red-400 mt-1">{errors.password}</p>
-                                    )}
+                                    {errors.password && <p className="text-xs text-red-400 mt-1">{errors.password}</p>}
 
-                                    {/* Password strength indicator (Signup only) */}
                                     {!isLogin && passwordStrength && (
                                         <div className="mt-2">
                                             <div className="flex gap-1 h-1">
@@ -312,18 +536,24 @@ export default function LoginPage() {
                                                     <div
                                                         key={level}
                                                         className={`flex-1 h-full rounded-full transition-colors ${passwordStrength === level
-                                                            ? level === 'weak' ? 'bg-red-500'
-                                                                : level === 'medium' ? 'bg-amber-500'
+                                                            ? level === 'weak'
+                                                                ? 'bg-red-500'
+                                                                : level === 'medium'
+                                                                    ? 'bg-amber-500'
                                                                     : 'bg-emerald-500'
                                                             : 'bg-slate-600'
                                                             }`}
                                                     />
                                                 ))}
                                             </div>
-                                            <p className={`text-xs mt-1 ${passwordStrength === 'weak' ? 'text-red-400' :
-                                                passwordStrength === 'medium' ? 'text-amber-400' :
-                                                    'text-emerald-400'
-                                                }`}>
+                                            <p
+                                                className={`text-xs mt-1 ${passwordStrength === 'weak'
+                                                    ? 'text-red-400'
+                                                    : passwordStrength === 'medium'
+                                                        ? 'text-amber-400'
+                                                        : 'text-emerald-400'
+                                                    }`}
+                                            >
                                                 {passwordStrength === 'weak' && 'Weak password'}
                                                 {passwordStrength === 'medium' && 'Medium strength'}
                                                 {passwordStrength === 'strong' && 'Strong password'}
@@ -332,7 +562,6 @@ export default function LoginPage() {
                                     )}
                                 </div>
 
-                                {/* Confirm Password (Signup only) */}
                                 {!isLogin && (
                                     <div>
                                         <label className="block text-sm text-slate-400 mb-1">Confirm Password</label>
@@ -355,7 +584,6 @@ export default function LoginPage() {
                                     </div>
                                 )}
 
-                                {/* Remember Me & Forgot Password (Login only) */}
                                 {isLogin && (
                                     <div className="flex items-center justify-between">
                                         <label className="flex items-center gap-2 cursor-pointer">
@@ -367,16 +595,12 @@ export default function LoginPage() {
                                             />
                                             <span className="text-sm text-slate-300">Remember me</span>
                                         </label>
-                                        <Link
-                                            href="/forgot-password"
-                                            className="text-sm text-blue-400 hover:text-blue-300"
-                                        >
+                                        <Link href="/forgot-password" className="text-sm text-blue-400 hover:text-blue-300">
                                             Forgot password?
                                         </Link>
                                     </div>
                                 )}
 
-                                {/* Terms (Signup only) */}
                                 {!isLogin && (
                                     <label className="flex items-start gap-2 cursor-pointer">
                                         <input
@@ -399,14 +623,18 @@ export default function LoginPage() {
                                     </label>
                                 )}
 
-                                {/* Submit Button */}
+                                {errors.form && (
+                                    <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">
+                                        {errors.form}
+                                    </div>
+                                )}
+
                                 <motion.button
                                     type="submit"
                                     disabled={isLoading || (!isLogin && !acceptTerms)}
                                     whileHover={{ scale: 1.02 }}
                                     whileTap={{ scale: 0.98 }}
                                     className="w-full py-3 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden group"
-                                    onClick={() => { document.cookie = "token=12345" }}
                                 >
                                     {isLoading ? (
                                         <div className="flex items-center justify-center gap-2">
@@ -421,7 +649,6 @@ export default function LoginPage() {
                                     )}
                                 </motion.button>
 
-                                {/* Divider */}
                                 <div className="relative my-6">
                                     <div className="absolute inset-0 flex items-center">
                                         <div className="w-full border-t border-white/10"></div>
@@ -431,11 +658,12 @@ export default function LoginPage() {
                                     </div>
                                 </div>
 
-                                {/* Social Login */}
                                 <div className="grid grid-cols-2 gap-3">
                                     <button
                                         type="button"
-                                        className="flex items-center justify-center gap-2 py-2 bg-white/10 border border-white/20 rounded-lg text-slate-300 hover:bg-white/20 transition-colors"
+                                        onClick={() => handleSocialLogin('google')}
+                                        disabled={isLoading}
+                                        className="flex items-center justify-center gap-2 py-2 bg-white/10 border border-white/20 rounded-lg text-slate-300 hover:bg-white/20 transition-colors disabled:opacity-50"
                                     >
                                         <svg className="w-5 h-5" viewBox="0 0 24 24">
                                             <path
@@ -459,32 +687,20 @@ export default function LoginPage() {
                                     </button>
                                     <button
                                         type="button"
-                                        className="flex items-center justify-center gap-2 py-2 bg-white/10 border border-white/20 rounded-lg text-slate-300 hover:bg-white/20 transition-colors"
+                                        onClick={() => handleSocialLogin('github')}
+                                        disabled={isLoading}
+                                        className="flex items-center justify-center gap-2 py-2 bg-white/10 border border-white/20 rounded-lg text-slate-300 hover:bg-white/20 transition-colors disabled:opacity-50"
                                     >
-                                        <svg
-                                            className="w-5 h-5"
-                                            fill="currentColor"
-                                            viewBox="0 0 24 24"
-                                        >
+                                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                                             <path
                                                 fillRule="evenodd"
-                                                d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483
-                                                0-.237-.009-.866-.014-1.699-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466
-                                                -.908-.62.069-.608.069-.608 1.004.07 1.532 1.032 1.532 1.032.892 1.53 2.341 1.088 2.91.832
-                                                .092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951
-                                                0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65
-                                                0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337
-                                                1.909-1.296 2.747-1.026 2.747-1.026.546 1.378.203 2.397.1 2.65
-                                                .64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.944
-                                                .359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747
-                                                0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.523 2 12 2z"
+                                                d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.009-.866-.014-1.699-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.004.07 1.532 1.032 1.532 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.026 2.747-1.026.546 1.378.203 2.397.1 2.65.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.944.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.523 2 12 2z"
                                                 clipRule="evenodd"
                                             />
                                         </svg>
                                         <span className="text-sm">GitHub</span>
                                     </button>
                                 </div>
-
                             </motion.form>
                         </AnimatePresence>
                     </div>

@@ -6,9 +6,28 @@ import {
     EnvelopeIcon,
     ArrowLeftIcon,
     CheckCircleIcon,
-    ArrowPathIcon
+    ArrowPathIcon,
 } from '@heroicons/react/24/outline'
 import Link from 'next/link'
+import { sendPasswordResetEmail } from 'firebase/auth'
+import { FirebaseError } from 'firebase/app'
+
+import { firebaseAuth } from '@/lib/firebase/client'
+
+const getResetErrorMessage = (error: unknown): string => {
+    if (error instanceof FirebaseError) {
+        switch (error.code) {
+            case 'auth/invalid-email':
+                return 'Invalid email format.'
+            case 'auth/user-not-found':
+                return 'No account exists for this email.'
+            default:
+                return 'Failed to send reset email. Try again.'
+        }
+    }
+
+    return 'Something went wrong. Please try again.'
+}
 
 export default function ForgotPasswordPage() {
     const [email, setEmail] = useState('')
@@ -32,23 +51,24 @@ export default function ForgotPasswordPage() {
         setIsLoading(true)
         setError('')
 
-        // Simulate API call
-        setTimeout(() => {
-            setIsLoading(false)
+        try {
+            await sendPasswordResetEmail(firebaseAuth, email)
             setIsSubmitted(true)
-        }, 1500)
+        } catch (err) {
+            setError(getResetErrorMessage(err))
+        } finally {
+            setIsLoading(false)
+        }
     }
 
     return (
         <div className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden">
-            {/* Animated Background */}
             <div className="absolute inset-0 bg-gradient-to-br from-slate-950 via-purple-950/20 to-indigo-950/30">
                 <div className="absolute inset-0 bg-grid-pattern opacity-20" />
                 <div className="absolute top-20 left-10 w-96 h-96 bg-blue-500/20 rounded-full blur-3xl animate-float" />
                 <div className="absolute bottom-20 right-10 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl animate-float-delayed" />
             </div>
 
-            {/* Main Container */}
             <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -67,7 +87,7 @@ export default function ForgotPasswordPage() {
                         <>
                             <h1 className="text-2xl font-bold text-white mb-2">Reset Password</h1>
                             <p className="text-sm text-slate-400 mb-6">
-                                Enter your email address and we'll send you instructions to reset your password.
+                                Enter your email address and we&apos;ll send you instructions to reset your password.
                             </p>
 
                             <form onSubmit={handleSubmit} className="space-y-4">
@@ -84,9 +104,7 @@ export default function ForgotPasswordPage() {
                                                 }`}
                                         />
                                     </div>
-                                    {error && (
-                                        <p className="text-xs text-red-400 mt-1">{error}</p>
-                                    )}
+                                    {error && <p className="text-xs text-red-400 mt-1">{error}</p>}
                                 </div>
 
                                 <motion.button
@@ -118,11 +136,11 @@ export default function ForgotPasswordPage() {
                             </div>
                             <h2 className="text-xl font-bold text-white mb-2">Check Your Email</h2>
                             <p className="text-sm text-slate-400 mb-6">
-                                We've sent password reset instructions to:<br />
+                                We&apos;ve sent password reset instructions to:<br />
                                 <span className="text-blue-400 font-medium">{email}</span>
                             </p>
                             <Link
-                                href="/"
+                                href="/login"
                                 className="inline-block px-6 py-2 bg-white/10 border border-white/20 rounded-lg text-white hover:bg-white/20 transition-colors"
                             >
                                 Return to Login
@@ -131,11 +149,8 @@ export default function ForgotPasswordPage() {
                     )}
                 </div>
 
-                {/* Security Note */}
                 <div className="mt-4 text-center">
-                    <p className="text-xs text-slate-500">
-                        For security reasons, reset links expire after 24 hours.
-                    </p>
+                    <p className="text-xs text-slate-500">For security reasons, reset links expire after 24 hours.</p>
                 </div>
             </motion.div>
         </div>

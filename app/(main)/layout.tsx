@@ -1,10 +1,13 @@
 
 import type { Metadata } from 'next'
 import { Inter, Space_Grotesk, JetBrains_Mono } from 'next/font/google'
+import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
 import '../globals.css'
 import Header from './components/layout/Header'
 import Sidebar from './components/layout/Sidebar'
-import LoginPage from '../(auth)/login/page'
+import { SESSION_COOKIE_NAME } from '@/lib/auth/session'
+import { getFirebaseAdminServices } from '@/lib/firebase/admin'
 
 const inter = Inter({
   subsets: ['latin'],
@@ -29,11 +32,25 @@ export const metadata: Metadata = {
   description: 'Regulatory-aware gene discovery platform for Alzheimer\'s disease',
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  const cookieStore = await cookies()
+  const sessionCookie = cookieStore.get(SESSION_COOKIE_NAME)?.value
+
+  if (!sessionCookie) {
+    redirect('/login')
+  }
+
+  try {
+    const { adminAuth } = getFirebaseAdminServices()
+    await adminAuth.verifySessionCookie(sessionCookie, true)
+  } catch {
+    redirect('/login')
+  }
+
   return (
     <html lang="en" className="dark">
       <body className={`${inter.variable} ${spaceGrotesk.variable} ${jetbrainsMono.variable} font-sans bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950/50`}>

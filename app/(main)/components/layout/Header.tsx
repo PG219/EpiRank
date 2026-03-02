@@ -10,15 +10,21 @@ import {
     WifiIcon
 } from '@heroicons/react/24/outline'
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { signOut } from 'firebase/auth'
+
+import { firebaseAuth } from '@/lib/firebase/client'
 
 interface HeaderProps {
     className?: string
 }
 
 const Header: React.FC<HeaderProps> = ({ className }) => {
+    const router = useRouter()
     const [isScrolled, setIsScrolled] = useState(false)
     const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
     const [connectionStatus, setConnectionStatus] = useState<'connected' | 'connecting' | 'offline'>('connected')
+    const [isSigningOut, setIsSigningOut] = useState(false)
 
     useEffect(() => {
         const handleScroll = () => {
@@ -33,6 +39,23 @@ const Header: React.FC<HeaderProps> = ({ className }) => {
         { id: 2, message: 'Model retraining finished', time: '1 hour ago', unread: false },
         { id: 3, message: 'SHAP explanations updated', time: '3 hours ago', unread: false },
     ]
+
+    const handleLogout = async () => {
+        if (isSigningOut) {
+            return
+        }
+
+        setIsSigningOut(true)
+
+        try {
+            await fetch('/api/auth/session', { method: 'DELETE' })
+            await signOut(firebaseAuth)
+        } finally {
+            router.push('/login')
+            router.refresh()
+            setIsSigningOut(false)
+        }
+    }
 
     return (
         <motion.header
@@ -190,7 +213,7 @@ const Header: React.FC<HeaderProps> = ({ className }) => {
                         {/* Profile dropdown */}
                         <div className="absolute right-0 mt-2 w-48 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 transform origin-top-right scale-95 group-hover:scale-100">
                             <div className="bg-slate-800/95 backdrop-blur-xl border border-white/10 rounded-xl overflow-hidden shadow-2xl">
-                                {['Profile', 'Settings', 'API Keys', 'Logout'].map((item) => (
+                                {['Profile', 'Settings', 'API Keys'].map((item) => (
                                     <motion.div
                                         key={item}
                                         whileHover={{ backgroundColor: 'rgba(255,255,255,0.05)' }}
@@ -199,6 +222,15 @@ const Header: React.FC<HeaderProps> = ({ className }) => {
                                         {item}
                                     </motion.div>
                                 ))}
+                                <motion.button
+                                    type="button"
+                                    whileHover={{ backgroundColor: 'rgba(255,255,255,0.05)' }}
+                                    className="w-full text-left px-4 py-2 cursor-pointer text-sm text-slate-300 hover:text-white disabled:opacity-60"
+                                    onClick={handleLogout}
+                                    disabled={isSigningOut}
+                                >
+                                    {isSigningOut ? 'Logging out...' : 'Logout'}
+                                </motion.button>
                             </div>
                         </div>
                     </motion.div>

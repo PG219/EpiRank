@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { SESSION_COOKIE_NAME } from "@/lib/auth/session";
 
 export function middleware(request: NextRequest) {
-    const token = request.cookies.get("token");
+    const token = request.cookies.get(SESSION_COOKIE_NAME)?.value;
     const { pathname } = request.nextUrl;
 
     const publicRoutes = ["/login", "/forgot-password"];
@@ -21,5 +22,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-    matcher: ["/((?!_next|favicon.ico).*)"],
+    matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
 };
