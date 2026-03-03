@@ -9,10 +9,11 @@ interface TopFeaturesProps {
     maxDisplay?: number
 }
 
-const TopFeatures: React.FC<TopFeaturesProps> = ({ features, maxDisplay = 3 }) => {
+const TopFeatures: React.FC<TopFeaturesProps> = ({ features = [], maxDisplay = 3 }) => {
     const [showAll, setShowAll] = useState(false)
-    const displayFeatures = showAll ? features : features.slice(0, maxDisplay)
-    const hasMore = features.length > maxDisplay
+    const safeFeatures = features || []
+    const displayFeatures = showAll ? safeFeatures : safeFeatures.slice(0, maxDisplay)
+    const hasMore = safeFeatures.length > maxDisplay
 
     const getFeatureColor = (feature: string) => {
         if (feature.includes('Methylation')) return 'from-blue-500/20 to-blue-600/20 border-blue-500/30 text-blue-300'

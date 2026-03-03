@@ -3,9 +3,10 @@ export interface Gene {
     gene: string
     score: number
     status: 'known' | 'novel'
-    chromosome: string
-    network_degree: number
-    top_features: string[]
+    region?: string
+    chromosome?: string
+    network_degree?: number
+    top_features?: string[]
     methylation_delta?: number
     histone_marks?: {
         h3k4me3?: number

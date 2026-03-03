@@ -46,9 +46,9 @@ const RankTable: React.FC<RankTableProps> = ({ data, isLoading, onGeneClick }) =
             case 'score':
                 return (a.score - b.score) * multiplier
             case 'chromosome':
-                return a.chromosome.localeCompare(b.chromosome) * multiplier
+                return ((a.chromosome ?? '').localeCompare(b.chromosome ?? '')) * multiplier
             case 'degree':
-                return (a.network_degree - b.network_degree) * multiplier
+                return ((a.network_degree ?? 0) - (b.network_degree ?? 0)) * multiplier
             default:
                 return 0
         }
@@ -185,17 +185,21 @@ const RankTable: React.FC<RankTableProps> = ({ data, isLoading, onGeneClick }) =
 
                             {/* Chromosome */}
                             <td className="py-3 px-4">
-                                <span className="text-sm font-mono text-slate-400">{gene.chromosome}</span>
+                                <span className="text-sm font-mono text-slate-400">
+                                    {gene.chromosome ?? '—'}
+                                </span>
                             </td>
 
                             {/* Network degree */}
                             <td className="py-3 px-4">
-                                <span className="text-sm text-slate-300">{gene.network_degree}</span>
+                                <span className="text-sm text-slate-300">
+                                    {gene.network_degree ?? '—'}
+                                </span>
                             </td>
 
                             {/* Top features */}
                             <td className="py-3 px-4">
-                                <TopFeatures features={gene.top_features} />
+                                <TopFeatures features={gene.top_features ?? []} />
                             </td>
                         </motion.tr>
                     ))}

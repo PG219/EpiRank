@@ -22,9 +22,14 @@ interface HeaderProps {
 const Header: React.FC<HeaderProps> = ({ className }) => {
     const router = useRouter()
     const [isScrolled, setIsScrolled] = useState(false)
-    const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
+    const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
     const [connectionStatus, setConnectionStatus] = useState<'connected' | 'connecting' | 'offline'>('connected')
     const [isSigningOut, setIsSigningOut] = useState(false)
+
+    useEffect(() => {
+        // Set the time after hydration
+        setLastUpdated(new Date())
+    }, [])
 
     useEffect(() => {
         const handleScroll = () => {
@@ -148,7 +153,7 @@ const Header: React.FC<HeaderProps> = ({ className }) => {
                     >
                         <WifiIcon className="w-4 h-4 text-slate-400" />
                         <span className="text-xs text-slate-400">
-                            Updated {lastUpdated.toLocaleTimeString()}
+                            Updated {lastUpdated ? lastUpdated.toLocaleTimeString() : '—'}
                         </span>
                     </motion.div>
 

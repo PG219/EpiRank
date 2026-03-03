@@ -30,7 +30,7 @@ export default function RankingsPage() {
     // Filter based on search
     const filteredData = rankings?.filter(gene =>
         gene.gene.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        gene.chromosome.toLowerCase().includes(searchQuery.toLowerCase())
+        (gene.chromosome ?? '').toLowerCase().includes(searchQuery.toLowerCase())
     )
 
     return (
